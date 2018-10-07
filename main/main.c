@@ -29,9 +29,9 @@ uint8_t c1,c2,c3,c4; // Variables to hold the guess digits
 const int digits[] = {0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f};
 
 /* Pre-build command buffers */
-uint8_t set_all[] = {0x40, 0xc0, 0xff, 0x01, 0xff, 0x01, 0xff, 0x01, 0xff, 0x01,
+uint8_t set_all[] = {0xff, 0x01, 0xff, 0x01, 0xff, 0x01, 0xff, 0x01,
                                 0xff, 0x01, 0xff, 0x01, 0xff, 0x01, 0xff, 0x01};
-uint8_t set_none[] = {0x40, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+uint8_t set_none[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 
@@ -63,18 +63,16 @@ void bb_send_cmd(uint8_t cmd)
 }
 
 void bb_send(uint8_t *to_display, uint8_t length){
-    ESP_LOGI(TAG, "bb_send");
+    ESP_LOGD(TAG, "bb_send");
     bb_send_cmd(0x40); // Bulk update
     int i;
     /* Set the strobe low */
     gpio_set_level(strobe, 0);
     bb_send_byte(0xc0); // Start address
-    //vTaskDelay(1);
     for (i=0; i<length; i++){
         bb_send_byte(to_display[i]);
     }
     /* Set the strobe high */
-    //vTaskDelay(1);
     gpio_set_level(strobe, 1);
 }
 
@@ -89,10 +87,44 @@ void bb_send_address(uint8_t address, uint8_t value)
     gpio_set_level(strobe, 1);
 }
 
+uint8_t bb_read_buttons()
+{
+    int i, j;
+    uint8_t value = 0;
+    uint8_t bit;
+    uint8_t buttons = 0;
+    /* Set the strobe low */
+    gpio_set_level(strobe, 0);
+    bb_send_byte(0x42); // Read data command
+    gpio_set_direction(data, GPIO_MODE_INPUT);
+    for (i=0; i<4; i++) {
+        for (j=0; j<16; j++) {
+            if (j % 2 == 0) {
+                /* Take the clock low */
+                gpio_set_level(clock, 0);
+            } else {
+                /* Take the clock high */
+                gpio_set_level(clock, 1);
+                /* Read the data bit */
+                bit = gpio_get_level(data);
+                value = value << 1;
+                value |= (bit & 0x01);
+            }
+        }
+        buttons |= value >> i;
+    }
+    gpio_set_direction(data, GPIO_MODE_OUTPUT);
+    /* Set the strobe high */
+    gpio_set_level(strobe, 1);
+    if (buttons != 0)
+        ESP_LOGI(TAG, "Buttons: 0x%02x", buttons);
+    return buttons;
+}
+
 
 void update_display()
 {
-    ESP_LOGI(TAG, "Update display");
+    ESP_LOGD(TAG, "Update display");
     bb_send(display, 16);
 }
 
@@ -134,8 +166,8 @@ void display_setup(uint8_t brightness)
 void display_leds(uint8_t value) {
     int i;
     for (i=0; i<8; i++) {
-        ESP_LOGI(TAG, "Setting display[%d] = %d", ((i*2)+3), ((value >> i) & 0x01));
-        display[(i*2)+3] = (uint8_t) ((value >> i) & 0x01);
+        ESP_LOGD(TAG, "Setting display[%d] = %d", ((i*2)+1), ((value >> i) & 0x01));
+        display[((7-i)*2)+1] = (uint8_t) ((value >> i) & 0x01);
     }
 }
 
@@ -174,11 +206,13 @@ void app_main()
             (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
     display_setup(0x01);
 
+    int loop = 0;
+    uint8_t leds = 0;
     for(i=180;i>=0;i--) {
         ESP_LOGI(TAG, "%d", i);
         display_timer(i);
+        display_leds(bb_read_buttons());
         update_display();
-        //bb_send_address(0xc0, digits[i%10]);
         vTaskDelay(100);
     }
     
