@@ -4,16 +4,10 @@
             "name": "Mac",
             "includePath": [
                 "${workspaceFolder}/**",
-                "/Users/vance/esp/esp-idf/components/**"
-            ],
-            "defines": [],
-            "macFrameworkPath": [
-                "/Library/Developer/CommandLineTools/SDKs/MacOSX10.14.sdk/System/Library/Frameworks"
-            ],
-            "compilerPath": "/usr/bin/clang",
-            "cStandard": "c11",
-            "cppStandard": "c++17",
-            "intelliSenseMode": "clang-x64"
+                "/Users/vance/esp/esp-idf/components/**",
+                "/Users/vance/xtensa-esp32-elf/lib/gcc/xtensa-esp32-elf/5.2.0/include/",
+                "/Users/vance/xtensa-esp32-elf/xtensa-esp32-elf/include/**"
+            ]
         }
     ],
     "version": 4

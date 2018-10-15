@@ -1,8 +1,8 @@
 #include "esp_useful.h"
 
-#include <time.h>
+#include "time.h"
 
-unsigned long clock_ms()
+clock_t clock_ms()
 {
-    return 1000 * clock() / CLOCKS_PER_SEC;
+    return (clock_t) (1000 * clock() / CLOCKS_PER_SEC);
 }

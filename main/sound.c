@@ -112,19 +112,23 @@ void sound(int gpio_num, int gnd_num, uint32_t freq, uint32_t duration) {
 	ledc_conf.channel    = LEDC_CHANNEL_0;
 	ledc_conf.intr_type  = LEDC_INTR_DISABLE;
 	ledc_conf.timer_sel  = LEDC_TIMER_0;
-    ledc_conf.hpoint = 0x7ffff;
+    ledc_conf.hpoint = 0x7fff;
 	ledc_conf.duty       = 0x0; // 50%=0x3FFF, 100%=0x7FFF for 15 Bit
 	                            // 50%=0x01FF, 100%=0x03FF for 10 Bit
 	ledc_channel_config(&ledc_conf);
     ESP_LOGI(TAG, "LEDC Config done");
 
 	// start
+    ESP_LOGI(TAG, "Starting Sound");
     ledc_set_duty(GPIO_OUTPUT_SPEED, LEDC_CHANNEL_0, 0x7F); // 12% duty - play here for your speaker or buzzer
     ledc_update_duty(GPIO_OUTPUT_SPEED, LEDC_CHANNEL_0);
+    ESP_LOGD(TAG, "Duty set to %d", ledc_get_duty(GPIO_OUTPUT_SPEED, LEDC_CHANNEL_0));
 	vTaskDelay(duration/portTICK_PERIOD_MS);
 	// stop
+    ESP_LOGI(TAG, "Stopping Sound");
     ledc_set_duty(GPIO_OUTPUT_SPEED, LEDC_CHANNEL_0, 0);
     ledc_update_duty(GPIO_OUTPUT_SPEED, LEDC_CHANNEL_0);
+    ESP_LOGD(TAG, "Duty set to %d", ledc_get_duty(GPIO_OUTPUT_SPEED, LEDC_CHANNEL_0));
 
 }
 void gpio_task(void *pvParameters) {

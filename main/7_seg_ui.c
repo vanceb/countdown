@@ -43,7 +43,7 @@ void bb_send_byte(seven_segment_ui *display, uint8_t value)
 {
     int i;
     /* Loop through the data */
-    ESP_LOGD(TAG, "Sending byte: %02x", value);
+    ESP_LOGV(TAG, "Sending byte: %02x", value);
     for (i=0; i<16; i++) {
         if (i % 2 == 0) {
             /* Set the data bit */
@@ -81,7 +81,7 @@ void bb_send_cmd(seven_segment_ui *display, uint8_t cmd)
  * A wrapper command to send data using auto-increment addressing
  */
 void bb_send(seven_segment_ui *display){
-    ESP_LOGD(TAG, "bb_send");
+    ESP_LOGV(TAG, "bb_send");
     bb_send_cmd(display, 0x40); // Bulk update
     int i;
     /* Set the strobe low */
@@ -100,6 +100,7 @@ void bb_send(seven_segment_ui *display){
  */
 void bb_send_address(seven_segment_ui *display, uint8_t address, uint8_t value)
 {
+    ESP_LOGV(TAG, "bb_send_address");
     /* Set the strobe low */
     gpio_set_level(display->strobe_pin, 0);
     bb_send_byte(display, 0x44);
@@ -115,6 +116,7 @@ void bb_send_address(seven_segment_ui *display, uint8_t address, uint8_t value)
  */
 uint8_t bb_read_buttons(seven_segment_ui *display)
 {
+    ESP_LOGV(TAG, "bb_read_buttons");
     int i, j;
     uint8_t value = 0;
     uint8_t bit;
@@ -143,7 +145,7 @@ uint8_t bb_read_buttons(seven_segment_ui *display)
     /* Set the strobe high */
     gpio_set_level(display->strobe_pin, 1);
     if (buttons != 0)
-        ESP_LOGI(TAG, "Buttons: 0x%02x", buttons);
+        ESP_LOGD(TAG, "Buttons: 0x%02x", buttons);
     return buttons;
 }
 
@@ -154,7 +156,7 @@ uint8_t bb_read_buttons(seven_segment_ui *display)
 void update_display(seven_segment_ui *display)
 {
     int i;
-    ESP_LOGD(TAG, "Update display");
+    ESP_LOGV(TAG, "Update display");
     /* Deal with flashing digits */
     if (((clock_ms() / 500) % 2) == 0) {
         for (i=0; i<8; i++){
@@ -201,7 +203,7 @@ seven_segment_ui* display_setup(uint8_t strobe_pin,
                             uint8_t data_pin, 
                             uint8_t brightness)
 {
-    ESP_LOGD(TAG, "Display Init: str: %d, clk: %d, dat: %d", strobe_pin, clock_pin, data_pin);
+    ESP_LOGI(TAG, "Display Init: str: %d, clk: %d, dat: %d", strobe_pin, clock_pin, data_pin);
     seven_segment_ui *display = malloc(sizeof(seven_segment_ui));
     if (display == NULL) {
         ESP_LOGE(TAG, "Unable to allocate memory for display");
@@ -220,7 +222,7 @@ seven_segment_ui* display_setup(uint8_t strobe_pin,
         gpio_set_direction(display->strobe_pin, GPIO_MODE_OUTPUT);
         /* Enable display and set brightness */
         uint8_t enable_display = 0x88 | (brightness & 0x07);
-        ESP_LOGI(TAG, "Enabling display with: 0x%02x", enable_display);
+        ESP_LOGD(TAG, "Enabling display with: 0x%02x", enable_display);
         bb_send_cmd(display, enable_display);
         vTaskDelay(1);
         display_blank(display);
@@ -244,7 +246,7 @@ void display_leds(seven_segment_ui *display, uint8_t value)
 {
     int i;
     for (i=0; i<8; i++) {
-        ESP_LOGD(TAG, "Setting display[%d] = %d", ((i*2)+1), ((value >> i) & 0x01));
+        ESP_LOGV(TAG, "Setting display[%d] = %d", ((i*2)+1), ((value >> i) & 0x01));
         display->display_buffer[((7-i)*2)+1] = (uint8_t) ((value >> i) & 0x01);
     }
 }
