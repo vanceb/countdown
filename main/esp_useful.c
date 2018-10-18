@@ -4,5 +4,5 @@
 
 clock_t clock_ms()
 {
-    return (clock_t) (1000 * clock() / CLOCKS_PER_SEC);
+    return (clock_t) (1000 / CLOCKS_PER_SEC * clock());
 }

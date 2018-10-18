@@ -19,6 +19,16 @@
 #include "7_seg_ui.h"
 #include "sound.h"
 
+/* Control how the program operates */
+#define DEBUG 1
+#define ALARM 1
+#define TICK 1
+#define TILT 1
+#define TILT_ARM_DELAY 30000
+
+/* On average it will miss a tick every... */
+#define MISS_TICK 6000
+
 static const char *TAG = "scary";
 
 seven_segment_ui *display;
@@ -35,26 +45,59 @@ enum gamestate {
 const int strobe_pin = 12;
 const int clock_pin = 14;
 const int data_pin = 27;
+const int beep_pin = 19;
+const int beep_gnd = 22;
+const int tilt_pin = 18;
+const int tilt_gnd = 23;
 
 uint8_t secret[4] = {0,0,0,0}; // Array to hold the secret code digits
 uint8_t code[4] = {0,0,0,0}; // Array to hold the guess digits
-unsigned long reset_now;
 
-void sound_raw(int pin, int gnd, int ticks_freq, int count) {
+void gpio_setup() {
+    gpio_pad_select_gpio(beep_pin);
+    gpio_pad_select_gpio(beep_gnd);
+    gpio_pad_select_gpio(tilt_pin);
+    gpio_pad_select_gpio(tilt_gnd);
+    gpio_set_direction(beep_pin, GPIO_MODE_OUTPUT);
+    gpio_set_direction(beep_gnd, GPIO_MODE_OUTPUT);
+    gpio_set_direction(tilt_pin, GPIO_MODE_INPUT);
+    gpio_set_direction(tilt_gnd, GPIO_MODE_OUTPUT);
+    gpio_set_level(beep_pin, 1);
+    gpio_set_level(beep_gnd, 1);
+    gpio_set_level(tilt_gnd, 0);
+    //gpio_pullup_enable(tilt_pin);
+    gpio_set_pull_mode(tilt_pin, GPIO_PULLUP_ONLY);
+}
+void beep(int ticks) {
+    gpio_set_level(beep_gnd, 0);
+    vTaskDelay(ticks);
+    gpio_set_level(beep_gnd, 1);
+}
+
+void tick() {
+    #if TICK
+    if (esp_random() % MISS_TICK)
+        beep(1);
+    #endif
+}
+
+void alarm(int ticks) {
+    #if ALARM
+    beep(ticks);
+    #endif
+}
+
+void endgame(seven_segment_ui *display) {
     int i;
-    gpio_pad_select_gpio(pin);
-    gpio_pad_select_gpio(gnd);
-    gpio_set_direction(pin, GPIO_MODE_OUTPUT);
-    gpio_set_direction(gnd, GPIO_MODE_OUTPUT);
-    gpio_set_level(gnd, 0);
-    ESP_LOGI(TAG, "GPIO Config done");
-
-    for (i=0; i<count; i++){
-        gpio_set_level(pin, 1);
-        vTaskDelay(ticks_freq);
-        gpio_set_level(pin, 0);
-        vTaskDelay(ticks_freq);
+    uint8_t leds = 0xff;
+    gpio_set_level(beep_gnd, 0);
+    for (i=0; i<8; i++) {
+        display_leds(display, leds);
+        update_display(display);
+        leds >>= 1;
+        vTaskDelay(10*(8-i));
     }
+    gpio_set_level(beep_gnd, 1);
 }
 
 uint8_t manage_buttons(seven_segment_ui *display)
@@ -82,16 +125,19 @@ uint8_t manage_buttons(seven_segment_ui *display)
 
 uint8_t check_code() {
     int i;
+    /* Assume all bits unmatched - 1=NOMATCH */
     uint8_t flash=0xf0;
     for (i=0; i<4; i++) {
+        /* Check each digit of the code */
         if (code[i] == secret[i]) 
+            /* Clear the bit if we match */
             flash &= ~(0x80 >> i);
     }
     ESP_LOGD(TAG, "Check Code: %02x", flash);
     return flash;
 }
 
-void game1(void)
+void game1(unsigned int count_from)
 {
     int i=0;
     uint8_t buttons_released = 0;
@@ -99,6 +145,7 @@ void game1(void)
     int countdown = -1;
     clock_t second_timer = clock();
     clock_t refresh = second_timer;
+    unsigned long reset_now=0;
     state = RESETTING;
     while (state != GAMEOVER) {
         /* Manage states */
@@ -131,7 +178,16 @@ void game1(void)
                     if (buttons_released & 0x10) {
                         code[3] = (code[3] +1) % 10;
                     }
+                    #if DEBUG
                     /* Check code button changed */
+                    if (buttons_released & 0x08) {
+                        /* End the countdown
+                         * This button will not be pushable when built... */
+                        ESP_LOGE(TAG, "Artificially ended game!");
+                        ESP_LOGD(TAG, "State: GAMEOVER");
+                        state = GAMEOVER;
+                    }  
+                    #endif
                     if (buttons_released & 0x01) {
                         display->flash = check_code();
                         ESP_LOGI(TAG, "Guess %02x", display->flash);
@@ -153,14 +209,15 @@ void game1(void)
                 }
                 break;
             case TIMEUP:
-                state = RESETTING;
-                ESP_LOGD(TAG, "State: RESETTING");
+                state = GAMEOVER;
+                ESP_LOGD(TAG, "State: GAMEOVER");
+                endgame(display);
                 break;
             case RESETTING:
                 state = STARTED;
                 ESP_LOGD(TAG, "State: STARTED");
                 display->flash = 0xf0;
-                countdown = 180;
+                countdown = count_from;
                 for (i=0; i<4; i++) {
                     secret[i] = esp_random() % 10;
                     code[i] = 0;
@@ -182,6 +239,8 @@ void game1(void)
             if (state == STARTED || state == GUESSING) {
                 countdown--;
                 ESP_LOGD(TAG, "%d", countdown);
+                tick();
+
             }
         }
 
@@ -249,22 +308,73 @@ void app_main()
 
     /* initialise the display */
     display = display_setup(strobe_pin, clock_pin, data_pin, 0x01);
+    /* Initialise the sound and tilt sensor */
+    gpio_setup();
 
     clock_t check_buttons = 0;
     int button_ticks = 10;
     clock_t flash_led = 0;
     int led_ticks = 15000;
     uint8_t released_buttons;
+    #if TILT
+    clock_t tilt_arm = clock() + TILT_ARM_DELAY;
+    uint8_t tilt_armed = 0;
+    uint8_t tilt = gpio_get_level(tilt_pin);
+    uint8_t tilt_prev = tilt;
+    #endif
 
     /* Main loop */
     for (;;) {
+        /* Check if a button has been pushed */
         if (clock() > check_buttons || (check_buttons - clock()) > button_ticks) {
             check_buttons = clock() + button_ticks;
             released_buttons = manage_buttons(display);
             if (released_buttons) {
-               game1(); 
+                if (released_buttons & 0x02) {
+                    game1(10);
+                } else if (released_buttons & 0x01) {
+                    game1(60); 
+                } else {
+                    game1(esp_random() % (2 * released_buttons));
+                }
+                #if TILT
+                tilt_armed = 0;
+                tilt_arm = clock() + TILT_ARM_DELAY;
+                #endif
             }
+            #if TILT
+            tilt = gpio_get_level(tilt_pin);
+            if (tilt_armed) {
+                /* Check the tilt switch */
+                if (tilt != tilt_prev) {
+                    /* Somebody moved us... */
+                    ESP_LOGI(TAG, "Tilted...  Starting countdown!");
+                    game1(60 + esp_random() % 60);
+                    tilt_armed = 0;
+                    tilt_arm = clock() + TILT_ARM_DELAY;
+                }
+            } else {
+                if (tilt != tilt_prev) {
+                    /* We are not yet armed and are being moved */
+                    /* Reset the arming delay */
+                    ESP_LOGI(TAG, "Delaying tilt arming due to movement");
+                    tilt_prev = tilt;
+                    tilt_arm = clock() + TILT_ARM_DELAY;
+                }
+                if (clock() > tilt_arm) {
+                    ESP_LOGI(TAG, "Tilt mechanism armed...");
+                    /* We should arm the tilt mechanism */
+                    tilt_prev = gpio_get_level(tilt_pin);
+                    tilt_armed = 1;
+                } 
+            }
+            #endif
         }
+        /* Flash the LED */
+        #if TILT
+        if (tilt_armed) {
+        #endif
+
         if (clock() > flash_led || (flash_led - clock()) > led_ticks) {
             flash_led = clock() + led_ticks;
             display_leds(display, 0x01);
@@ -273,6 +383,10 @@ void app_main()
             display_leds(display, 0x00);
             update_display(display);
         }
+
+        #if TILT
+        }
+        #endif
         /* Yield */
         vTaskDelay(5);
     }
